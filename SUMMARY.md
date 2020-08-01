@@ -1,1 +1,7 @@
-* [test](test.md)
+* [云原生](CloudNative/)
+  * [Kubernetes](CloudNative/Kubernetes)
+    * [1-为什么static cpu manager不能使用gpu](CloudNative/Kubernetes/1-为什么static%20cpu%20manager%20下不能使用gpu.md)
+* [分布式存储](DistributedStorage/)
+  * [MQ](DistributedStorage/MQ/)
+    * [NSQ](DistributedStorage/MQ/NSQ/)
+      * [1-架构设计](DistributedStorage/MQ/NSQ/1-架构设计.md)
