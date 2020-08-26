@@ -56,9 +56,22 @@ client-go中informer使用的是哪种工厂方法呢。首先先梳理下inform
 
 - informer初始化流程![](image/9.drawio.svg)
 
-如图所示，SharedInformerFactory根据GVR信息create对应的shareIndexInformer，SharedInformerFactory启动的时候，会启动SharedInformerFactory create的所有shareIndexInformer(`SharedInformerFactorycreate的shareIndexInformer每种资源(GVK)只会创建一个shareIndexInformer`)，shareIndexInformer启动的时候，会创建controller和Reflector并启动。从这里看一看出informer中主要的两个组件就是controller和Reflector。
+如图所示，SharedInformerFactory根据GVR信息create对应的shareIndexInformer，SharedInformerFactory启动的时候，会启动SharedInformerFactory create的所有shareIndexInformer(`SharedInformerFactorycreate的shareIndexInformer每种资源(GVK)只会创建一个shareIndexInformer`)，shareIndexInformer启动的时候，会创建controller和Reflector并启动。从这里看一看出informer中主要的两个组件就是controller和Reflector。其中还包括一些辅助组件`fifo queue` `indexer` 和 `processorListener`。下图是informer的工作原理图.	![](image/10.drawio.svg)
+
+```
+1. 在平时使用client-go，我经常存在的一个疑问：产生Delete事件后，生成key放入queue中，在controller中处理，在处理过程中，我从indexer中在去get resource，此时会不会存在时间差。
+	了解了client-go中informer的原理后，这个问题就可以解决了，我看到到controller中会在4中先更新indexer，在产生OnDelete事件的调用。
+```
 
 - informer.controller组件
 
-
 - informer.reflector组件
+
+- queue 组件
+
+- indexer 组件
+
+- processorListener 组件
+
+
+## informer sync 实现机制

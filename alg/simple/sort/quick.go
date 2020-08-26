@@ -5,7 +5,7 @@ func quick(array []interface{}, compare Compare) {
 	quickWork(array, compare, 0, len(array))
 }
 
-//DEBUG:`start 包含 end不包含`
+//note:`start 包含 end不包含`
 func quickWork(array []interface{}, compare Compare, start, end int) {
 	sentinel := start
 	if end <= start {
