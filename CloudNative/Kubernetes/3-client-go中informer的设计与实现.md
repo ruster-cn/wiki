@@ -63,12 +63,14 @@ client-go中informer使用的是哪种工厂方法呢。首先先梳理下inform
 	了解了client-go中informer的原理后，这个问题就可以解决了，我看到到controller中会在4中先更新indexer，在产生OnDelete事件的调用。
 ```
 
-- informer.controller组件
+- informer.controller组件  
+informer.controller的主要作用是初始化reflector 组件，并启动reflector组件，并从fifo queue中消费Reflector 写入队列中的resource object 并处理。如何处理呢？shareIndexInformer在初始化controller时，会讲自己的HandleDeltas作为controller的process function。
 
-- informer.reflector组件
+- informer.reflector组件  
+  reflector 通过shareIndexInformer中定义的listerWatcher，在启动后先list resource写入队列，之后会watch 并定期resync resource，并将resource 写入队列。
 
-- queue 组件
-
+- queue 组件  
+	informer中queue使用的fifo queue()。
 - indexer 组件
 
 - processorListener 组件
