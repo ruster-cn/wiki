@@ -11,7 +11,7 @@
 - 在办公网 mac 上 启动 chisel client:
 
 ```
-./chisel_1.6.0_darwin_amd64 client --fingerprint a5:7e:c8:e1:04:7a:da:8c:69:cb:12:39:fd:8a:5c:c2  https://cds-admin.corp.kuaishou.com  socks
+./chisel_1.6.0_darwin_amd64 client --fingerprint a5:7e:c8:e1:04:7a:da:8c:69:cb:12:39:fd:8a:5c:c2  https://cds-admin.corp.test.com  socks
 ```
 
 - ssh 登陆指定本地 sock 代理

@@ -65,12 +65,17 @@ client-go 中 informer 使用的是哪种工厂方法呢。首先先梳理下 in
 ```
 
 - informer.controller 组件  
+  
   informer.controller 的主要作用:Run 时初始化和启动 reflector 组件，通过 processLoop 从 fifo queue 中消费 resource 并处理。如何处理呢？shareIndexInformer 在初始化 controller 时，会将自己的 HandleDeltas 作为 controller 的 process function 使用。
 
 - informer.reflector 组件  
+  
   reflector 通过 shareIndexInformer 中定义的 listerWatcher，在启动后先 list resource 写入队列，之后会 watch 并定期 resync resource，并将 resource 写入队列。
 
-- queue 组件  
+- queue 组件 
+    
+   **这部分代码重点学习，可以学习sync包的使用，队列实现方法**   
+
    informer 中 queue 使用的 fifo queue()。在了解 fifo queue 中设计思想，首先需要介绍一下 GO 中 sync 包的 Cond,Cond 是 sync 包中条件变量的一种实现，使用场景：多个 standby 的 gorouting 等待共享资源 ready。例如 fifo queue 中 Pop 方法：
 
   ```golang
@@ -127,8 +132,9 @@ client-go 中 informer 使用的是哪种工厂方法呢。首先先梳理下 in
   Close()
   }
   ```
-
-- indexer 组件
+  这里分析的普通的fifo队列的功能，实际上reflector使用的是DeltaFIFO。DeltaFIFO的功能和上面的FIFO是一样的，只是是专门用来存储Delta元素的FIFO Queue。同时DeltaFIFO在实现上还引用了index组件，用来实现rsync操作。
+- indexer 组件  
+  
   在controller处理元素的时候，除了将元素保存到cache，还可以为元素建立查找索引，提升查找速率。例如，可以将pod根据node name建立索引，这样，在查找某个node上的pod时候，就可以直接使用索引，而不是全量过滤pod的filed。
   ![indexer结构](image/11.drawio.svg)  
   从上图可知，client-go使用的Indexer包括两部分:
@@ -171,6 +177,10 @@ client-go 中 informer 使用的是哪种工厂方法呢。首先先梳理下 in
 ```
   
 - processorListener 组件
-  在使用informer的时候，可以注册eventHandler，注册的eventHandler是如何被调用的呢？这部分工作就是由processorListener处理的。
+
+   **这部分代码重点学习，如何利用channel实现一个带有速率限制的处理器**   
+
+  在使用informer的时候，可以注册eventHandler，注册的eventHandler是如何被调用的呢？这部分工作就是由processorListener处理的。具体工作流如下所示：
+  ![](image/12.drawio.svg)
 
 ## informer sync 实现机制

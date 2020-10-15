@@ -32,3 +32,25 @@ func PreOrderTraversalLoop(root *Node, list *[]int) {
 		root = node.Right
 	}
 }
+
+/*
+	NOTE: 分治法
+	思想: 将大问题拆解为小问题，将小问题的结果返回，合并。分治法主要使用递归解决问题，因此使用分治法解决问题的思路：
+		- 如何将大问题拆解为小问题
+		- 递归退出条件
+*/
+
+//PreOrderTraversalDivide 使用分治法解决二叉树遍历问题
+func PreOrderTraversalDivide(root *Node) []int {
+	if root == nil {
+		return nil
+	}
+	list := make([]int, 0)
+	left := PreOrderTraversalDivide(root.Left)
+	right := PreOrderTraversalDivide(root.Right)
+
+	list = append(list, root.Val)
+	list = append(list, left...)
+	list = append(list, right...)
+	return list
+}
