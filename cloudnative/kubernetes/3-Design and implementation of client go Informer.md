@@ -59,6 +59,8 @@ client-go 中 informer 使用的是哪种工厂方法呢。首先先梳理下 in
 
 如图所示，SharedInformerFactory 根据 GVR 信息 create 对应的 shareIndexInformer，SharedInformerFactory 启动的时候，会启动 SharedInformerFactory create 的所有 shareIndexInformer(`SharedInformerFactorycreate的shareIndexInformer每种资源(GVK)只会创建一个shareIndexInformer`)，shareIndexInformer 启动的时候，会创建 controller 和 Reflector 并启动。从这里看一看出 informer 中主要的两个组件就是 controller 和 Reflector。其中还包括一些辅助组件`fifo queue` `indexer` 和 `processorListener`。下图是 informer 的工作原理图. ![](image/10.drawio.svg)
 
+>> 说明：shareIndexInformer的含义，什么叫share。Shared Informer可以使同一类资源Informer共享一个Reflector。或者更简单的理解，SharedInformerFactory在添加多个informer的时候，如果在资源的informer已经存在了，就不在new新的informer了，会使用之前存在的informer。
+
 ```
 1. 在平时使用client-go，我经常存在的一个疑问：产生Delete事件后，生成key放入queue中，在controller中处理，在处理过程中，我从indexer中在去get resource，此时会不会存在时间差。
 	了解了client-go中informer的原理后，这个问题就可以解决了，我看到到controller中会在4中先更新indexer，在产生OnDelete事件的调用。
@@ -184,3 +186,9 @@ client-go 中 informer 使用的是哪种工厂方法呢。首先先梳理下 in
   ![](image/12.drawio.svg)
 
 ## informer sync 实现机制
+
+  `informers.NewSharedInformerFactory(client, 1*time.Second)` 会传入一个resync 时间周期。这个时间周期最终会作为 `sharedIndexInformer` 的`defaultEventHandlerResyncPeriod`,在reflector的`ListAndWatch`方法中会启动一个协程，定期的执行`r.store.Resync()`操作。该操作会从index中取出所有的元素，与DetalFifo中的元素做去重后，生成一个sync Detals放入DetalFifo中。通过这种方法来实现index的更新。
+  
+  >> 说明1: resync time不是常规理解的，informer 会隔多久，重新执行一次 list操作。他只是一个定期全量更新index的时间。为什么要定期更新index，主要考虑可能是，如果时间过多，消费不及时，index里的数据不及时。
+
+  >> 说明2: informer只有在watch异常后，才会再次执行list操作。也就是reflector的ListAndWatch方法只有在启动后会执行一次list，之后都不会再在执行list操作。但是当第二次之后在执行的list，也不是全量从api server拉取数据。而是采用的一种增量更新的方式。在k8s中每种资源都有一个resourceversion。list或者watch更新资源后，会同步更新resourceversion。之后在拉取数据，就只拉取，落后的resourceversion的数据即可。
