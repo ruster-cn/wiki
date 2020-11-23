@@ -10,7 +10,8 @@ cpu manager 提供了一种 cpu set 的 cpu 分配方式。可以将进程尽可
 
 ## 代码剖析
 
-cpu manager 提供了两种策略：none 和 static。kubelet 默认的 cpu-manager-policy 是 none，即使用 CFS 配额的方式分配使用 cpu 资源。如果将 cpu-manager-policy 配置为 static,则将会为 QOS 等级为 guaranteed 的设置 cpu set。在下面的代码分析中将会主要分析 static cpu manager policy.因为在 none cpu manager policy 的代码实现都是空实现。
+cpu manager 提供了两种策略：none 和 static。kubelet 默认的 cpu-manager-policy 是 none，即使用 CFS 配额的方式分配使用 cpu 资源。如果将 static策略针对具有整数型cpu request的Guananteed Pod，允许该类Pod中的容器访问节点上独占的cpu资源。static policy管理一个共享的cpu资源池。最初，该资源池包含节点上所有的cpu资源。可以独占的cpu资源等于节点的 cpu总量 - kube-reserved保留的cpu - system-reserved保留的cpu.从1.17版本后，cpu保留列表可以通过reserved-cpus参数显示的设置。reserved-cpus指定的cpu列表优先于kube-reserved 和 system-reserved。 通过这些参数预留的 CPU 是以整数方式，按物理内 核 ID 升序从初始共享池获取的。 共享池是 BestEffort 和 Burstable pod 运行 的 CPU 集合。Guaranteed pod 中的容器，如果声明了非整数值的 CPU requests ，也将运行在共享池的 CPU 上。只有 Guaranteed pod 中，指定了整数型 CPU requests 的容器，才会被分配独占 CPU 资源。
+在下面的代码分析中将会主要分析 static cpu manager policy.因为在 none cpu manager policy 的代码实现都是空实现。
 
 ```golang
 type Manager interface {
@@ -71,3 +72,7 @@ func NewManager(cpuPolicyName string, reconcilePeriod time.Duration, machineInfo
 ### 4. 添加容器
 
 ### 5. 删除容器
+
+
+
+## cpu manager 与 topology manager && device manager

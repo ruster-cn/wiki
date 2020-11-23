@@ -181,8 +181,8 @@ type PreFilterPlugin interface {
 
 上图中展示了一个调度周期的上下文，以及Scheduling framework对外暴露的扩张点。Filter 阶段相当于原来的预算阶段，Scoring相当于原来的优选阶段。每一个扩展点可以注册一个或多个Plugins。
 * Queues sort：对调度队列中的pod进行排序，Queues sort插件必须实现less（pod1，pod2）方法。Queues sort插件只能绑定一个。
-* Pre-filter：在pod调度之前对pod进行预处理工作，或者检查集群、pod必须满足的条件。Pre-filter插件必须实现PreFilter方法。如果PreFilter方法返回error，则调度周期会被终止。在一个调度周期PreFilter方法只会被执行一次。Pre-filter plugin还提供了AddPod和RemovePod操作。这两个操作在PreFilter后执行。（AddPod方法评估当PodA正在调度时，我们将PodB调度到node上时的影响，removePod方法的左右于此类似）
-* Filter：Filter Plugin用来过滤不满足条件的node。每一个node，调度器按照Filter Plugin注册的顺序调用。如果有一个Plugin标记node不满足条件，对node的过滤就结束了，后面的Plugin不会过滤。为了提高性能，node的过滤xuyao并发执行。
+* Pre-filter：在pod调度之前对pod进行预处理工作，或者检查集群、pod必须满足的条件。Pre-filter插件必须实现PreFilter方法。如果PreFilter方法返回error，则调度周期会被终止。在一个调度周期PreFilter方法只会被执行一次。Pre-filter plugin还提供了AddPod和RemovePod操作。这两个操作在PreFilter后执行。（AddPod方法评估当PodA正在调度时，我们将PodB调度到node上时的影响，removePod方法的作用于此类似）
+* Filter：Filter Plugin用来过滤不满足条件的node。每一个node，调度器按照Filter Plugin注册的顺序调用。如果有一个Plugin标记node不满足条件，对node的过滤就结束了，后面的Plugin不会过滤。为了提高性能，node的过滤需要并发执行。
 * Post-filter：用来更新数据和生成metrics指标，同时也可以作为Pre-Scoring的插件使用。
 * Scoring：插件分为两个阶段，Score和 NoremalizeScore，Score调用每个插件对node打分，NoremalizeScore，在调度器对node排序前，对节点得分修改。Scoring插件最后计算的分数必须是[MinNodeScore, MaxNodeScore]之间的一个整数。否则调度周期会被终止。在NoremalizeScore之后，调度器回根据每个插件配置的权重计算node的总分数。NoremalizeScore主要是为了解决Score方法计算的分数不在[MinNodeScore, MaxNodeScore]之间。
 * Reserve：在某个节点为pod预留资源时，Reserve插件可以提醒调度程序。
