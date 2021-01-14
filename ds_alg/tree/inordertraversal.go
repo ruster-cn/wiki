@@ -1,5 +1,6 @@
 package tree
 
+//中序遍历
 func inorderTraversalLoop(root *Node, list *[]int) {
 	if root == nil {
 		return

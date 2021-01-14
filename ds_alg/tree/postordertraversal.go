@@ -1,5 +1,6 @@
 package tree
 
+//后序遍历
 func postorderTraversalLoop(root *Node, list *[]int) {
 	if root == nil {
 		return

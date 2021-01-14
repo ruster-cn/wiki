@@ -1,0 +1,36 @@
+# controller manager的实际与实现
+
+## endpoint
+## endpointslice
+## endpointslicemirroring
+## replicationcontroller
+## podgc
+## resourcequota
+## namespace
+## serviceaccount
+## garbagecollector
+## daemonset
+## job
+## deployment
+## replicaset
+## horizontalpodautoscaling
+## disruption
+## statefulset
+## cronjob
+## csrsigning
+## csrapproving
+## csrcleaner
+## ttl
+## bootstrapsigner
+## tokencleaner
+## nodeipam
+## nodelifecycle
+## persistentvolume-binder
+## attachdetach
+## persistentvolume-expander
+## clusterrole-aggregation
+## pvc-protection
+## pv-protection
+## ttl-after-finished
+## root-ca-cert-publisher
+## ephemeral-volume

@@ -84,7 +84,7 @@ func GetPodQOS(pod *v1.Pod) v1.PodQOSClass {
 * Guaranteed：
   
   * Pod limit中cpu和mem都不必须不等于0
-  * Pod cpu和mem的limit和request的**总量（所有container的和，和每一contaienr无关，只要能保证最后Pod中所有container的和是相等即可）**必须相等
+  * Pod cpu和mem的limit和request的**总量（所有container的和，和每一contaienr无关，只要能保证最后Pod中所有container的和是相等即可**必须相等
 
 * BestEffort:  
   
@@ -96,9 +96,15 @@ func GetPodQOS(pod *v1.Pod) v1.PodQOSClass {
 ## Qos的应用
 
 * cpu manager policy：如果cpu 
+
+```
+// pkg/kubelet/cm/cpumanager/policy_static.go#guaranteedCPUs
+```
+
 * 计算container oom score:
 
 ```
+//pkg/kubelet/qos/policy.go#GetContainerOOMScoreAdjust
     //container oom score 计算规则:
     if pod is Guaranteed:
         return -998
@@ -112,7 +118,19 @@ func GetPodQOS(pod *v1.Pod) v1.PodQOSClass {
             return 999 //(oomScoreAdjust-1)
 ```
 * container ResourceConfig 计算:
+
+```
+// pkg/kubelet/cm/qos_container_manager_linux.go#setCPUCgroupConfig
+// pkg/kubelet/cm/qos_container_manager_linux.go#setMemoryReserve
+```
+
 * container cgroup path 设置:
   https://www.cnblogs.com/sparkdev/p/9523194.html
   https://blog.tianfeiyu.com/2020/01/21/kubelet_qos/
+  
 * pod 驱逐与抢占:
+  
+```
+// pkg/kubelet/eviction/eviction_manager.go#Admit
+// pkg/kubelet/preemption/preemption.go#evictPodsToFreeRequests
+```  
