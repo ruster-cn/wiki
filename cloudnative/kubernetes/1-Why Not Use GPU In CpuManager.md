@@ -2,13 +2,13 @@
 
 ## 问题发现
 
-当 kubelet 设置了--cpu-manager-policy=static 参数后，使用了 gpu 的容器，在启动后不就会发现，服务在容器内失去了对 gpu 设备的使用权限。执行 nvidia-smi 将会报如下异常：
+当kubelet设置了--cpu-manager-policy=static参数后，使用了gpu的容器，在启动后不久会发现，服务在容器内失去了对gpu设备的使用权限。执行nvidia-smi将会报如下异常：
 
 ```
 Failed to initialize NVML: Unknown Error
 ```
 
-当我们比较正常容器和异常容器的 device.list 文件发现了不同，异常容器的 device.list 少了两个设备的访问。device.list 里记录的是 cgroup 中支持的设备列表。
+当我们比较正常容器和异常容器的device.list文件发现了不同，异常容器的device.list(device.list里记录的是cgroup中支持访问的设备列表。)少了两个设备的访问权限。
 
 ```
 正常容器的devices.list文件内容
@@ -24,8 +24,8 @@ c 1:7 rwm
 c 136:* rwm
 c 5:2 rwm
 c 10:200 rwm
-c 195:255 rw
-c 195:3 rw
+c 195:255 rw（异常容器中缺少的）
+c 195:3 rw（异常容器中缺少的）
 
 异常容器的devices.list文件内容
 c 1:5 rwm
@@ -42,10 +42,10 @@ c 5:2 rwm
 c 10:200 rwm
 ```
 
-我们可以看下缺少的两项 device,就是 gpu 卡和 nvidia-smi 使用到的 nvidiactl
+我们可以看下/dev中缺少的两项device对应的设备名称,就是gpu卡和nvidia-smi使用到的nvidiactl
 ![](image/1.drawio.svg)
 
-用 trace 跟踪一下，为啥不访问 gpu 设备了,发现容器内没有权限访问 nvidiactl：
+用strace命令跟踪一下nvidia-smi的执行过程中的系统调用，找一下为什么不能访问gpu设备了。发现是容器内没有权限访问 nvidiactl：
 
 ```
 strace -v -a 100 -s 1000 nvidia-smi
@@ -62,19 +62,24 @@ exit_group(255)                                                                 
 
 ## 问题追踪
 
-为什么会出现这种问题呢，kubelet 加了一个--cpu-manager-policy=static 的参数，会导致容器运行过程中丢失设备。要搞清楚这个问题肯定得从两方面查一下，一个是增了--cpu-manager-policy=static 参数后 kubelet 的工作流发生了那些变化，这些变化又是如何影响到底层容器的。
+为什么会出现这种问题呢，kubelet加了一个--cpu-manager-policy=static的参数，会导致容器运行过程中丢失设备。要搞清楚这个问题肯定得从两方面查一下，一个是增了--cpu-manager-policy=static参数后 kubelet的工作流发生了那些变化，这些变化又是如何影响到底层容器的。
 
---cpu-manager-policy=static 的功能是啥？默认情况下 kubelet 创建的 pod 都是通过 CFS 配额的方式来分配使用物理机的 cpu 资源。而 static cpu manager 提供了 cpu set 的功能。能够给某些 container 绑定指定的 cpus，达到绑定邦核的能力，提升 cpu 敏感型任务的性能。按照线上生产环境的数据显示 container 如果使用了 cpu set，业务的性能提升在 15%-26%左右。
+--cpu-manager-policy=static的功能是啥？默认情况下kubelet创建的pod都是通过CFS配额的方式来分配使用物理机的cpu资源。而static cpu manager提供了cpu set的功能。能够给某些container绑定指定的 cpus，达到绑定邦核的能力，提升cpu敏感型任务的性能。按照线上生产环境的数据显示container如果使用了 cpu set，业务的性能提升在 15%-26%左右。
 
-static cpu manager policy 与 none cpu manager policy 有什么不同？通过了解 cm 部分的代码，发现 static cpu manager 会动态的定时的更新所有 container 的 cpu set 配置。![](image/2.drawio.svg)
+static cpu manager policy与none cpu manager policy 有什么不同？通过了解 cm 部分的代码，发现 static cpu manager会动态的定时的更新所有container的cpu set配置。
 
-cpu manager 启动时，如果是 none cpu manager policy，就直接返回了，如果是 static cpu manager 则会启动一个 gorouting 做 reconcile。继续跟踪 reconcileState 方法。![](image/3.drawio.svg)
-在 reconcileState 方法中，就是要不停的，通过 GetCPUSetOrDefault 方法获取容器的 cpu set。更新容器的 cpu set。GetCPUSetOrDefault 方法更具 containerID 获取 cpu set，如果 pod 是一个 guaranteed pod，放回的就是容器的 cpu set。否则，则返回的就是 default 值。除了 guaranteed pod 分配走的 cpu set 外，其余的所有的 cpu 都算在了 default 值里。因此所有的容器在运行过程中都会定时，动态的更新 cpu set 值。为什么要怎么做呢？主要有两个原因：
+![](image/2.drawio.svg)
 
-- 使用 CFS 配额的容器为使用 cpu set 的容器，让出 cpu 核。因为 add guaranteed pod 之后，default 值会变小。updata 之后，使用 CFS 配额的容器就给使用 cpu set 的容器让出了 cpu 核。
-- 保持内存中的 cpu state 和 实际容器使用的一致。
+cpu manager启动时，如果是none cpu manager policy，就直接返回了，如果是static cpu manager则会启动一个gorouting做reconcile。继续跟踪reconcileState方法。
 
-现在我们知道 static cpu manager 和 none cpu manager 的不同，主要是多了 reconcileState 中的 updateContainerCPUSet 的操作。updateContainerCPUSet 为什么会导致 gpu 没办法用了呢？要搞懂这个问题还得了解一下 nvidia container 的启动原理。
+![](image/3.drawio.svg)
+
+在reconcileState方法中，cm会不停的通过GetCPUSetOrDefault方法获取容器的cpu set。更新容器的cpu set。GetCPUSetOrDefault方法根据containerID获取 cpu set，如果 pod 是一个 guaranteed pod，返回的就是容器的 cpu set。否则，则返回的就是 default值。default 值得含义是："除了guaranteed pod分配走的cpu core外，其余的所有的cpu core都算在了default值里"。因此所有的容器在运行过程中都会定时、动态的更新cpu set值。为什么要怎么做呢？主要有两个原因：
+
+- 使用CFS配额的容器为使用cpu set的容器，让出 cpu core。因为add guaranteed pod之后，default值会变小。如果不更新非guaranteed pod的container，就无法保证guaranteed pod的container独占cpu core,达不到绑核的目的。updata 后，使用CFS配额的容器就给使用cpu set的容器让出了cpu core，使用cpu set的container就可以完全独占cpu core.
+- 保持内存中的cpu 分配数据和实际容器使用的情况一致。
+
+现在我们知道static cpu manager和none cpu manager的不同，主要是多了reconcileState中的 updateContainerCPUSet的操作。updateContainerCPUSet为什么会导致gpu没办法用了呢？要搞懂这个问题还得了解一下nvidia container的启动原理。
 这个是 nvidia 官方给出的一个 nvidia docker 启动的流程图：
 ![](https://developer.nvidia.com/blog/wp-content/uploads/2018/05/pasted-image-0-27.png)
 
@@ -82,31 +87,113 @@ cpu manager 启动时，如果是 none cpu manager policy，就直接返回了�
 
 首先简单介绍下各个组件的功能：
 
-- docker 是 docker 的客户端工具，用来把用户的请求发送给 dockerd.
-- dockerd 也被成为 docker engine,接受客户端的请求并做处理。kubelet 与 dockerd 通信使用的是 unix sock 方式。
-- Containerd 管理完整的容器生命周期（从创建容器到销毁容器)，拉取/推送容器镜像，存储管理(管理镜像及容器数据的存储)，调用 runC 运行容器(与 runC 等容器运行时交互)，管理容器网络接口及网络。
-- Containerd-shim 是 containerd 的组件，是容器的运行时载体，我们在 docker 宿主机上看到的 shim 也正是代表着一个个通过调用 containerd 启动的 docker 容器。
-- nvidia-container-runtime,nvidia 的 runtime，其实就是在 runc 上包装了一层，为容器中注入 PreStart，底层仍然运行的是 runc。
-- runc 是用来起停以及更新容器的 cli，包括 create,delete,kill,start，update 等操作。
-- nvidia-container-runtime-hook，就是 nvidia-container-runtime 为 runc 注入的 PreStart hook， hook 会去检查容器是否需要使用 GPU(通过环境变量 NVIDIA_VISIBLE_DEVICES 来判断)。如果需要则调用 libnvidia-container-cli 来暴露 GPU 给容器使用。否则走默认的 runc 逻辑。
-- libnvidia-container-cli 将 nvidia 驱动库的 so 文件 和 GPU 设备信息， 通过文件挂载的方式映射到容器中。
+- docker是docker的客户端工具，用来把用户的请求发送给dockerd.
+- dockerd也被称为docker engine,接受客户端的请求并做处理。kubelet与dockerd通信使用的是unix sock 方式,kubelet内置了一个docker-shim,docker-shim实现了类似docker client的功能可以与docker engine 通信。
+- Containerd管理完整的容器生命周期（从创建容器到销毁容器)，拉取/推送容器镜像，存储管理(管理镜像及容器数据的存储)，调用runc运行容器(与 runc等容器运行时交互)，管理容器网络接口及网络。
+- Containerd-shim 是containerd的组件，是容器的运行时载体，我们在docker宿主机上看到的shim也正是代表着一个个通过调用containerd启动的docker容器。
+- nvidia-container-runtime,nvidia的runtime(符合OCI标准的runtime实现)，但其实就是在runc上包装了一层，为runc增加了PreStart Hook，底层仍然运行的是runc。runc的PreStart Hook会在调用start操作之后但在执行用户指定的程序命令之前执行。
+- runc 是用来起停以及更新容器的runtime，可以对容器执行包括 create,delete,kill,start，update 等操作。
+- nvidia-container-runtime-hook，就是nvidia-container-runtime为runc注入的PreStart hook ,nvidia-container-runtime-hook会去检查容器是否需要使用GPU(通过环境变量 NVIDIA_VISIBLE_DEVICES来判断)。如果需要则调用libnvidia-container-cli来暴露GPU给容器使用。否则走默认的runc逻辑。
+- libnvidia-container-cli将nvidia驱动库的so文件和GPU设备信息，通过文件挂载的方式映射到容器中。
 
 从梳理上面组件的功能，我们可以发现一个问题：
 
-- libnvidia-container-cli 将 nvidia 驱动库的 so 文件 和 GPU 设备信息是通过文件挂载的方式映射到,并添加 cgroup 访问权限。而挂载的过程中，有没有将这部分信息同步给 docker engine。runc 在 update 过程中调用 device Set 方法，是根据容器的 cgroup config 中的内容重新调整了 device 相关的文件。 从代码中我们也可以证实这点。在这个过程中，就会丢失 libnvidia-container-cli 加入的设备。
+- libnvidia-container-cli将nvidia驱动库的so文件和GPU设备信息是通过文件挂载的方式挂载到容器中，并添加cgroup访问权限。而挂载的过程中，有没有将这部分信息同步给docker engine(或者说这部分挂载信息并没有添加到容器的cgroup config中)。runc在update过程中调用device Set方法，是根据容器的cgroup config中的内容重新调整device相关的文件。从代码中我们也可以证实这点。在这个过程中，就会丢失 libnvidia-container-cli加入的设备。
   ![](image/5.drawio.svg)
 
 ## 修复方法
 
 ### 1.kubelet cm 增加 patch
 
-最开始，我们在 kubelet 的 cm 模块做了修复，修复方案：在开启 static cpu manager 情景下，cm 模块中根据 containerID 获取 cpu set，如果 cpu set 不为空，我们就跳过这个容器，不 updateContainerCPUSet。如果没有跳过，这个容器肯定就是用的 default cpu set，那我们就可以调整容器的 cpuset 了。
+最开始，我们在 kubelet 的 cm 模块做了修复，修复方案：在开启 static cpu manager 情景下，cm 模块中根据 containerID 获取 cpu set，如果 cpu set 不为空，我们就跳过这个容器，不执行 updateContainerCPUSet。如果没有跳过，这个容器肯定就是用的 default cpu set，那我们就可以调整容器的 cpuset 了。
 
-这个修复方案只能在集群中 gpu 容器 使用 cpu set 才奏效。如果容器没有使用 cpu set，并且节点还开启了 static cpu manager，还是会出现 GPU 设备丢失的问题。并且在线上环境中，还在线即使 gpu 容器 使用 cpu set，在容器发生 oom 的时候也会发生 GPU 设备丢失的问题。
+
+```Golang
+func (m *manager) reconcileState() (success []reconciledContainer, failure []reconciledContainer) {
+    m.containerMap.Add(string(pod.UID), container.Name, containerID)
+	  m.Unlock()
+   // --------------------------------以上代码未改动 --------------------------------
+			cset,ok := m.state.GetCPUSet(string(pod.UID), container.Name)
+
+			if ok && !cset.IsEmpty() && isGPUPod(pod){
+				klog.Infof("[cpumanager] reconcileState: skipping container; is gpu pod and cpu set not empty (pod: %s, container: %s)", pod.Name, container.Name)
+				failure = append(failure, reconciledContainer{pod.Name, container.Name, containerID})
+				continue
+			}
+    // --------------------------------以下代码未改动 --------------------------------
+    cset = m.state.GetCPUSetOrDefault(string(pod.UID), container.Name)
+			if cset.IsEmpty() {
+				// NOTE: This should not happen outside of tests.
+				klog.Infof("[cpumanager] reconcileState: skipping container; assigned cpuset is empty (pod: %s, container: %s)", pod.Name, container.Name)
+				failure = append(failure, reconciledContainer{pod.Name, container.Name, containerID})
+				continue
+			}
+}
+
+```
+
+但是这个方案是有局限性的:
+* 解决不了节点开启了static cpu manager但是GPU容器没有使用cpu set的场景。如果GPU容器没有使用cpu set，但是节点仍然开启了static cpu manager policy。那么从cm模块设计上，由于GPU容器没有使用cpu set，它必须要未使用了cpu set的容器让出cpu core，那么它必然会被执行updateContainerCPUSet的操作。
 
 ### 2. runc 增加 patch
 
-在了解了 nvidia docker 的工作原理后，感觉可以从 runc 上修复一下。从 runc 修复的方案，肯定是要根据 device.deny ,device.allow,device.list 文件的内容，在 devcie Set 时，可以把 nvidia 设备加回去，或者跳过设备的更新。但是我们知道 device.deny ,device.allow 这两个文件是只能写入的，不可读。我们不能从这两个文件中读出来上次的设备再给加回去。因此我们只能根据 device.list 文件的内容做一些处理。这里我们做的处理是，当我们发现 device.list 文件中的内容发生改变后（即不是初始化的内容），就不再根据 cgroup config 中的内容更新 device.deny ,device.allow 文件，就不会发生 gpu 设别丢失的问题。当然这样做是基于一个合理的假设，即目前 kuberntes 不会在容器运行时，动态的更新容器挂载的设备。
+在了解nvidia docker的工作原理后，感觉可以从runc上修复一下。从 runc 修复的方案，肯定是要根据 device.deny ,device.allow,device.list 文件的内容，在 devcie Set 时，可以把 nvidia 设备加回去，或者跳过设备的更新。但是我们知道 device.deny ,device.allow 这两个文件是只能写入的，不可读。我们不能从这两个文件中读出来上次的设备再给加回去。因此我们只能根据 device.list 文件的内容做一些处理。这里我们做的处理是，当我们发现 device.list 文件中的内容发生改变后（即不是初始化的内容），就不再根据 cgroup config 中的内容更新 device.deny ,device.allow 文件，就不会发生 gpu 设别丢失的问题。当然这样做是基于一个合理的假设，即目前kuberntes不会在容器运行时，动态的更新容器挂载的设备。所有device的更新都必须走容器的重启。
 
-https://cloud.tencent.com/developer/article/1402119
-https://www.cnblogs.com/sparkdev/p/9129334.html
+```Golang
+func (s *DevicesGroup) Set(path string, cgroup *configs.Cgroup) error {
+	if system.RunningInUserNS() {
+		return nil
+	}
+
+	devList, err := fscommon.ReadFile(path, "devices.list")
+	if err != nil {
+		return err
+	}
+	// "a *:* rwm" is devices.list's initial value
+	// if devList starts with "a *:* rwm", it means that it's the first time to set devices cgroup
+	// if it doesn't, it means that devices cgroup has been updated, so just return.
+	if !strings.HasPrefix(devList, "a *:* rwm") {
+		return nil
+	}
+
+	devices := cgroup.Resources.Devices
+	if len(devices) > 0 {
+		for _, dev := range devices {
+			file := "devices.deny"
+			if dev.Allow {
+				file = "devices.allow"
+			}
+			if err := fscommon.WriteFile(path, file, dev.CgroupString()); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if cgroup.Resources.AllowAllDevices != nil {
+		if *cgroup.Resources.AllowAllDevices == false {
+			if err := fscommon.WriteFile(path, "devices.deny", "a"); err != nil {
+				return err
+			}
+
+			for _, dev := range cgroup.Resources.AllowedDevices {
+				if err := fscommon.WriteFile(path, "devices.allow", dev.CgroupString()); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+
+		if err := fscommon.WriteFile(path, "devices.allow", "a"); err != nil {
+			return err
+		}
+	}
+
+	for _, dev := range cgroup.Resources.DeniedDevices {
+		if err := fscommon.WriteFile(path, "devices.deny", dev.CgroupString()); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+```
