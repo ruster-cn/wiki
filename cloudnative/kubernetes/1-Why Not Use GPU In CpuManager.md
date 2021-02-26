@@ -43,7 +43,7 @@ c 10:200 rwm
 ```
 
 我们可以看下/dev中缺少的两项device对应的设备名称,就是gpu卡和nvidia-smi使用到的nvidiactl
-![](image/1.drawio.svg)
+![](image/1.drawio.png)
 
 用strace命令跟踪一下nvidia-smi的执行过程中的系统调用，找一下为什么不能访问gpu设备了。发现是容器内没有权限访问 nvidiactl：
 
@@ -68,11 +68,11 @@ exit_group(255)                                                                 
 
 static cpu manager policy与none cpu manager policy 有什么不同？通过了解 cm 部分的代码，发现 static cpu manager会动态的定时的更新所有container的cpu set配置。
 
-![](image/2.drawio.svg)
+![](image/2.drawio.png)
 
 cpu manager启动时，如果是none cpu manager policy，就直接返回了，如果是static cpu manager则会启动一个gorouting做reconcile。继续跟踪reconcileState方法。
 
-![](image/3.drawio.svg)
+![](image/3.drawio.png)
 
 在reconcileState方法中，cm会不停的通过GetCPUSetOrDefault方法获取容器的cpu set。更新容器的cpu set。GetCPUSetOrDefault方法根据containerID获取 cpu set，如果 pod 是一个 guaranteed pod，返回的就是容器的 cpu set。否则，则返回的就是 default值。default 值得含义是："除了guaranteed pod分配走的cpu core外，其余的所有的cpu core都算在了default值里"。因此所有的容器在运行过程中都会定时、动态的更新cpu set值。为什么要怎么做呢？主要有两个原因：
 
@@ -83,7 +83,7 @@ cpu manager启动时，如果是none cpu manager policy，就直接返回了，�
 这个是 nvidia 官方给出的一个 nvidia docker 启动的流程图：
 ![](https://developer.nvidia.com/blog/wp-content/uploads/2018/05/pasted-image-0-27.png)
 
-下面这个是我自己摸索代码整理出来的一个更详细的流程图：![](image/4.drawio.svg)
+下面这个是我自己摸索代码整理出来的一个更详细的流程图：![](image/4.drawio.png)
 
 首先简单介绍下各个组件的功能：
 
@@ -99,7 +99,7 @@ cpu manager启动时，如果是none cpu manager policy，就直接返回了，�
 从梳理上面组件的功能，我们可以发现一个问题：
 
 - libnvidia-container-cli将nvidia驱动库的so文件和GPU设备信息是通过文件挂载的方式挂载到容器中，并添加cgroup访问权限。而挂载的过程中，有没有将这部分信息同步给docker engine(或者说这部分挂载信息并没有添加到容器的cgroup config中)。runc在update过程中调用device Set方法，是根据容器的cgroup config中的内容重新调整device相关的文件。从代码中我们也可以证实这点。在这个过程中，就会丢失 libnvidia-container-cli加入的设备。
-  ![](image/5.drawio.svg)
+  ![](image/5.drawio.png)
 
 ## 修复方法
 
